@@ -3,6 +3,13 @@ from scipy.fft import fft
 from scipy import signal
 from scipy.signal import butter, filtfilt
 
+
+def iirnotch(in_signal: float, sample_freq: float, notch_freq: float, q_factor: float):
+    b_notch, a_notch = signal.iirnotch(w0=notch_freq, Q=q_factor, fs=sample_freq)
+    output_signal = filtfilt(b_notch, a_notch, in_signal)
+    return output_signal
+
+
 def butter_bandpass(sig, lowcut, highcut, fs, order=2):
     # butterworth bandpass filter
     
@@ -14,6 +21,7 @@ def butter_bandpass(sig, lowcut, highcut, fs, order=2):
     
     y = filtfilt(b, a, sig)
     return y
+
 
 def hr_fft(sig, fs, harmonics_removal=True):
     # get heart rate by FFT
@@ -51,6 +59,15 @@ def hr_fft(sig, fs, harmonics_removal=True):
 
     x_hr = np.arange(len(sig_f))/len(sig_f)*fs*60
     return hr, sig_f_original, x_hr
+
+
+""" if hr1.round() == 125.0:
+    print("125BPM detected! Replaced with HR2")
+    hr = hr2
+
+elif hr2.round() == 125.0:
+    print("125BPM detected! Replaced with HR1")
+    hr = hr1 """
 
 def normalize(x):
     return (x-x.mean())/x.std()

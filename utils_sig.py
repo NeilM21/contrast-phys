@@ -15,6 +15,7 @@ def butter_bandpass(sig, lowcut, highcut, fs, order=2):
     y = filtfilt(b, a, sig)
     return y
 
+
 def butter_bandpass_batch(sig_list, lowcut, highcut, fs, order=2):
     # butterworth bandpass filter (batch version)
     # signals are in the sig_list
@@ -30,6 +31,7 @@ def butter_bandpass_batch(sig_list, lowcut, highcut, fs, order=2):
         y = filtfilt(b, a, sig)
         y_list.append(y)
     return np.array(y_list)
+
 
 def hr_fft(sig, fs, harmonics_removal=True):
     # get heart rate by FFT
@@ -107,6 +109,9 @@ def hr_fft_batch(sig_list, fs, harmonics_removal=True):
         # x_hr = np.arange(len(sig))/len(sig)*fs*60
         hr_list.append(hr)
     return np.array(hr_list)
+
+def normalize(x):
+    return (x-x.mean())/x.std()
 
 def normalize(x):
     return (x-x.mean())/x.std()

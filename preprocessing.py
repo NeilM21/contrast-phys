@@ -1,11 +1,28 @@
-import cv2
 import numpy as np
 import h5py
 import cv2
+import os
 import pandas as pd
+import asyncio
+from demo.utils_im import image_frequency_analysis, notch_filter_images, save_images_async
+from PIL import Image
+from pathlib import Path
 
-                
-def openface_h5(video_path, landmark_path, h5_path, store_size=128):
+"""
+Sample for OpenFace command used to extract CAMVISIM dataset landmarks
+landmarks_folder = "landmarks"
+os.makedirs(landmarks_folder)
+videos_dir = "C://NIVS Project/src/CAMVISIM_master/video_trimming/GT Syncing/data_trimmed/exp2_nivs_labsubject_sync_timestamps"
+video_list = list(Path(videos_dir).glob("*/*.mts"))
+
+video_list2 = [str(path).replace("\\", '/') for path in video_list]
+video_list3 = [f'"{str(path)}"' for path in video_list2]
+for v in video_list3:
+    os.system('.\\openface\\FeatureExtraction.exe -f %s -out_dir %s -2Dfp' % (v, landmarks_folder))
+"""
+
+
+def openface_h5(video_path, landmark_path, h5_path, bvps, store_size=128, filter_ims=False, save_frames=False, mode=""):
     """
     crop face from OpenFace landmarks and save a video as .h5 file.
 
@@ -17,12 +34,21 @@ def openface_h5(video_path, landmark_path, h5_path, store_size=128):
 
     landmark = pd.read_csv(landmark_path)
 
+    if "camvisim" in mode.lower():
+        subj_id = video_path.split(os.sep)[-1][:4]
+
+    if mode.lower() == "pure":
+        subj_id = video_path.split(os.sep)[-1]
+
     with h5py.File(h5_path, 'w') as f:
-
+        # get gt data
+        f["bvp"] = bvps
         total_num_frame = len(landmark)
+        if mode != "pure":
+            cap = cv2.VideoCapture(video_path)
+        else:
+            frame_list = list(Path(video_path).rglob("*.png"))
 
-        cap = cv2.VideoCapture(video_path)
-        
         for frame_num in range(total_num_frame):
 
             if landmark[' success'][frame_num]:
@@ -41,27 +67,27 @@ def openface_h5(video_path, landmark_path, h5_path, store_size=128):
                 miny = np.min(lm_y)
                 maxy = np.max(lm_y)
 
-                y_range_ext = (maxy-miny)*0.2
-                miny = miny - y_range_ext
-
-
+                # NOTE: BBox size reduced (Neil)
+                # y_range_ext = (maxy-miny)*0.2
+                # miny = miny - y_range_ext
                 cnt_x = np.round((minx+maxx)/2).astype('int')
                 cnt_y = np.round((maxy+miny)/2).astype('int')
-                
+
                 break
 
+        # NOTE: This bbox param is untouched as the other modifications were sufficient
         bbox_size=np.round(1.5*(maxy-miny)).astype('int')
-        
+
         ########### init dataset in h5 ##################
-        if store_size==None:
+        if store_size == None:
             store_size = bbox_size
-            
-        imgs = f.create_dataset('imgs', shape=(total_num_frame, store_size, store_size, 3), 
+
+        imgs = f.create_dataset('imgs', shape=(total_num_frame, store_size, store_size, 3),
                                         dtype='uint8', chunks=(1,store_size, store_size,3),
                                         compression="gzip", compression_opts=4)
 
+        face_list = []
         for frame_num in range(total_num_frame):
-
             if landmark[' success'][frame_num]:
 
                 lm_x_ = []
@@ -72,38 +98,68 @@ def openface_h5(video_path, landmark_path, h5_path, store_size=128):
 
                 lm_x_ = np.array(lm_x_)
                 lm_y_ = np.array(lm_y_)
-                
+
                 lm_x = 0.9*lm_x+0.1*lm_x_
                 lm_y = 0.9*lm_y+0.1*lm_y_
-                
+
                 minx = np.min(lm_x)
                 maxx = np.max(lm_x)
                 miny = np.min(lm_y)
                 maxy = np.max(lm_y)
 
-                y_range_ext = (maxy-miny)*0.2
-                miny = miny - y_range_ext
-
+                # NOTE: commented to reduce bbox size and saw improvements
+                # y_range_ext = (maxy-miny)*0.2
+                # miny = miny - y_range_ext
 
                 cnt_x = np.round((minx+maxx)/2).astype('int')
                 cnt_y = np.round((maxy+miny)/2).astype('int')
-                
-            ret, frame = cap.read()
+
+            if mode != "pure":
+                ret, frame = cap.read()
+                if not ret:
+                    print("Can't receive frame (stream end?). Exiting ...")
+                    break
+
+            else:
+                frame = cv2.imread(str(frame_list[frame_num]))
+
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            if not ret:
-                print("Can't receive frame (stream end?). Exiting ...")
-                break
-            
+
             ########## for bbox ################
             bbox_half_size = int(bbox_size/2)
-            
-            face = np.take(frame, range(cnt_y-bbox_half_size, cnt_y-bbox_half_size+bbox_size),0, mode='clip')
-            face = np.take(face, range(cnt_x-bbox_half_size, cnt_x-bbox_half_size+bbox_size),1, mode='clip')
-            
-            if store_size==bbox_size:
-                imgs[frame_num] = face
-            else:
-                imgs[frame_num] = cv2.resize(face, (store_size,store_size))
 
-        cap.release()
+            face = np.take(frame, range(cnt_y-bbox_half_size, cnt_y-bbox_half_size+bbox_size), 0, mode='clip')
+            face = np.take(face, range(cnt_x-bbox_half_size, cnt_x-bbox_half_size+bbox_size), 1, mode='clip')
+
+            if store_size != bbox_size:
+                face = cv2.resize(face, (store_size, store_size))
+
+            else:
+                if store_size == bbox_size:
+                    imgs[frame_num] = face
+
+            face_list.append(face)
+
+        face_list = np.array(face_list)
+        if face_list.shape[0] > 0:
+            if filter_ims:
+                print("[H5 CREATION] Applying notch filter...")
+                face_list = notch_filter_images(face_list=face_list, subject_id=subj_id, notch_freq=2.08, fs=25)
+
+            if save_frames:
+                save_frames_dir = f"{Path(h5_path).parent}/frames"
+                print(f"[H5 CREATION] Saving frames from {video_path} in {save_frames_dir}...")
+
+                if not os.path.isdir(save_frames_dir):
+                    os.makedirs(save_frames_dir)
+
+                all_im_data_pil = [Image.fromarray(x) for x in face_list]
+                paths = [f"{save_frames_dir}/{subj_id}_{x}.jpg" for x in range(len(all_im_data_pil))]
+                formats = ["JPEG" for _ in range(len(all_im_data_pil))]
+                asyncio.run(save_images_async(image_batch=all_im_data_pil, file_paths=paths, file_formats=formats))
+            imgs[:] = face_list
+
+        if mode != "pure":
+            cap.release()
+
+    print()

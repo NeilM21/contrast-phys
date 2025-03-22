@@ -35,7 +35,7 @@ def my_config():
     in_ch = 3 # TODO: number of input video channels, in_ch=3 for RGB videos, in_ch=1 for NIR videos.
 
     # hyperparams for ST-rPPG block
-    fs = 30 # video frame rate, TODO: modify it if your video frame rate is not 30 fps.
+    fs = 30 # video frame rate, TODO: modify it if your video frame rate is not 30 dataset_fps.
     T = fs * 10 # temporal dimension of ST-rPPG block, default is 10 seconds.
     S = 2 # spatial dimenion of ST-rPPG block, default is 2x2.
 
